@@ -1,0 +1,352 @@
+--[[
+    Delta Ultimate Hub
+    Compatível com Delta Executor (Mobile/PC)
+    Aviso: Use por sua conta e risco. Respeite os ToS da Roblox.
+]]
+
+-- =========================================================
+-- 1. CARREGAMENTO DA INTERFACE (RAYFIELD)
+-- =========================================================
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "Delta Ultimate Hub",
+    LoadingTitle = "Carregando Delta Hub...",
+    LoadingSubtitle = "por Comunidade",
+    ConfigurationSaving = { Enabled = false },
+    KeySystem = false
+})
+
+-- =========================================================
+-- 2. SERVIÇOS E VARIÁVEIS GLOBAIS
+-- =========================================================
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TeleportService = game:GetService("TeleportService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Estados das funções
+local State = {
+    Aimbot = false,
+    SilentAim = false,
+    ESP = false,
+    Fly = false,
+    Noclip = false,
+    AntiAFK = false,
+    Speed = 16,
+    JumpPower = 50,
+    FOV = 120
+}
+
+-- =========================================================
+-- 3. ABA: COMBATE (AIMBOT & SILENT AIM)
+-- =========================================================
+local CombatTab = Window:CreateTab("⚔️ Combate", 4483362458)
+
+-- Aimbot (Mira Suave)
+local AimbotToggle = CombatTab:CreateToggle({
+    Name = "Aimbot (Mira Suave)",
+    CurrentValue = false,
+    Flag = "AimbotToggle",
+    Callback = function(Value)
+        State.Aimbot = Value
+    end
+})
+
+-- Silent Aim (Mira Silenciosa - apenas para jogos que permitem)
+local SilentToggle = CombatTab:CreateToggle({
+    Name = "Silent Aim (Instantâneo)",
+    CurrentValue = false,
+    Flag = "SilentToggle",
+    Callback = function(Value)
+        State.SilentAim = Value
+    end
+})
+
+-- Slider de FOV
+CombatTab:CreateSlider({
+    Name = "Raio do FOV (Aimbot)",
+    Range = {20, 300},
+    Increment = 5,
+    Suffix = "px",
+    CurrentValue = 120,
+    Flag = "FOVSlider",
+    Callback = function(Value)
+        State.FOV = Value
+    end
+})
+
+-- Lógica do Aimbot
+RunService.RenderStepped:Connect(function()
+    if not State.Aimbot and not State.SilentAim then return end
+
+    local closestPlayer = nil
+    local shortestDistance = State.FOV
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+            local head = player.Character.Head
+            local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+            if onScreen then
+                local distance = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closestPlayer = player
+                end
+            end
+        end
+    end
+
+    if closestPlayer and closestPlayer.Character and closestPlayer.Character:FindFirstChild("Head") then
+        local targetHead = closestPlayer.Character.Head
+        if State.Aimbot then
+            -- Mira suave (Camera)
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetHead.Position), 0.2)
+        end
+        -- Silent Aim exigiria hook em metatable (mais complexo e detectável)
+        -- Para segurança, esta versão implementa apenas o Aimbot visual.
+    end
+end)
+
+-- =========================================================
+-- 4. ABA: VISUAIS (ESP)
+-- =========================================================
+local VisualTab = Window:CreateTab("👁️ Visuais", 4483362458)
+
+local ESPToggle = VisualTab:CreateToggle({
+    Name = "ESP (Destacar Jogadores)",
+    CurrentValue = false,
+    Flag = "ESPToggle",
+    Callback = function(Value)
+        State.ESP = Value
+        -- Atualiza todos os jogadores existentes
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local highlight = player.Character:FindFirstChild("DeltaESP")
+                if Value and not highlight then
+                    local h = Instance.new("Highlight")
+                    h.Name = "DeltaESP"
+                    h.FillColor = Color3.fromRGB(0, 255, 0)
+                    h.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    h.Parent = player.Character
+                elseif not Value and highlight then
+                    highlight:Destroy()
+                end
+            end
+        end
+    end
+})
+
+-- Atualiza ESP para novos jogadores
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(char)
+        if State.ESP then
+            local h = Instance.new("Highlight")
+            h.Name = "DeltaESP"
+            h.FillColor = Color3.fromRGB(0, 255, 0)
+            h.OutlineColor = Color3.fromRGB(255, 255, 255)
+            h.Parent = char
+        end
+    end)
+end)
+
+-- Fullbright
+local FullbrightToggle = VisualTab:CreateToggle({
+    Name = "Fullbright (Visão Noturna)",
+    CurrentValue = false,
+    Flag = "Fullbright",
+    Callback = function(Value)
+        local lighting = game:GetService("Lighting")
+        if Value then
+            lighting.Ambient = Color3.fromRGB(255, 255, 255)
+            lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+        else
+            lighting.Ambient = Color3.fromRGB(0, 0, 0)
+            lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+        end
+    end
+})
+
+-- =========================================================
+-- 5. ABA: MOVIMENTAÇÃO (SPEED, JUMP, FLY, NOCLIP)
+-- =========================================================
+local MoveTab = Window:CreateTab("🏃 Movimento", 4483362458)
+
+-- Speed
+MoveTab:CreateSlider({
+    Name = "Velocidade (WalkSpeed)",
+    Range = {16, 200},
+    Increment = 1,
+    Suffix = "spd",
+    CurrentValue = 16,
+    Flag = "SpeedSlider",
+    Callback = function(Value)
+        State.Speed = Value
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.WalkSpeed = Value
+        end
+    end
+})
+
+-- Jump Power
+MoveTab:CreateSlider({
+    Name = "Força do Pulso (JumpPower)",
+    Range = {50, 300},
+    Increment = 5,
+    Suffix = "jp",
+    CurrentValue = 50,
+    Flag = "JumpSlider",
+    Callback = function(Value)
+        State.JumpPower = Value
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.JumpPower = Value
+        end
+    end
+})
+
+-- Fly
+local FlyToggle = MoveTab:CreateToggle({
+    Name = "Fly (Voar)",
+    CurrentValue = false,
+    Flag = "FlyToggle",
+    Callback = function(Value)
+        State.Fly = Value
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local humanoid = char:FindFirstChild("Humanoid")
+        if not hrp or not humanoid then return end
+
+        if Value then
+            local bg = Instance.new("BodyGyro")
+            bg.Parent = hrp
+            bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+            bg.P = 1000
+            local bv = Instance.new("BodyVelocity")
+            bv.Parent = hrp
+            bv.Velocity = Vector3.new(0, 0, 0)
+            bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            humanoid.PlatformStand = true
+            -- Loop de voo (simplificado)
+            spawn(function()
+                while State.Fly and char.Parent do
+                    local moveDir = humanoid.MoveDirection
+                    bv.Velocity = moveDir * 50 + Vector3.new(0, UserInputService:IsKeyDown(Enum.KeyCode.Space) and 50 or 0, 0)
+                    RunService.RenderStepped:Wait()
+                end
+            end)
+        else
+            hrp:FindFirstChildOfClass("BodyGyro"):Destroy()
+            hrp:FindFirstChildOfClass("BodyVelocity"):Destroy()
+            humanoid.PlatformStand = false
+        end
+    end
+})
+
+-- Noclip
+local NoclipToggle = MoveTab:CreateToggle({
+    Name = "Noclip (Atravessar Paredes)",
+    CurrentValue = false,
+    Flag = "NoclipToggle",
+    Callback = function(Value)
+        State.Noclip = Value
+        RunService.Stepped:Connect(function()
+            if State.Noclip and LocalPlayer.Character then
+                for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    end
+})
+
+-- =========================================================
+-- 6. ABA: TELEPORTE
+-- =========================================================
+local TeleportTab = Window:CreateTab("📍 Teleporte", 4483362458)
+
+-- Teleporte para Jogador
+local playerDropdown = TeleportTab:CreateDropdown({
+    Name = "Selecionar Jogador",
+    Options = {},
+    CurrentOption = {},
+    Flag = "PlayerDropdown",
+    Callback = function(option) end
+})
+
+-- Atualiza a lista de jogadores
+local function updatePlayerList()
+    local plrs = {}
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            table.insert(plrs, p.Name)
+        end
+    end
+    playerDropdown:Refresh(plrs)
+end
+
+updatePlayerList()
+Players.PlayerAdded:Connect(updatePlayerList)
+Players.PlayerRemoving:Connect(updatePlayerList)
+
+TeleportTab:CreateButton({
+    Name = "Teleportar para Jogador",
+    Callback = function()
+        local selected = playerDropdown.CurrentOption
+        if selected and selected[1] then
+            local target = Players:FindFirstChild(selected[1])
+            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+            end
+        end
+    end
+})
+
+-- =========================================================
+-- 7. ABA: MISC (ANTI-AFK, REJOIN)
+-- =========================================================
+local MiscTab = Window:CreateTab("⚙️ Misc", 4483362458)
+
+local AntiAFKToggle = MiscTab:CreateToggle({
+    Name = "Anti-AFK (Evitar Kick por Inatividade)",
+    CurrentValue = false,
+    Flag = "AntiAFK",
+    Callback = function(Value)
+        State.AntiAFK = Value
+        if Value then
+            spawn(function()
+                while State.AntiAFK do
+                    local vu = game:GetService("VirtualUser")
+                    vu:CaptureController()
+                    vu:ClickButton2(Vector2.new())
+                    task.wait(60)
+                end
+            end)
+        end
+    end
+})
+
+MiscTab:CreateButton({
+    Name = "Rejoin (Reentrar no Servidor)",
+    Callback = function()
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+    end
+})
+
+-- =========================================================
+-- 8. FINALIZAÇÃO
+-- =========================================================
+Rayfield:Notify({
+    Title = "Delta Ultimate Hub",
+    Content = "Script carregado com sucesso!",
+    Duration = 5,
+    Image = 4483362458
+})
+
+print("[Delta Hub] Carregado com sucesso.")
